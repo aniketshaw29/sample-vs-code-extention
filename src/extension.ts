@@ -2,11 +2,10 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { Bookmark } from './types';
 import { BookmarkTreeProvider } from './treeProvider';
+import { BookmarkDashboard } from './webviewPanel';
 
 const STORAGE_KEY = 'codemark.bookmarks';
 
-// vscode.Uri is a class — it cannot be stored in JSON directly.
-// We serialize to a plain string and reconstruct on load.
 interface StoredBookmark {
     uriString: string;
     line: number;
@@ -72,7 +71,6 @@ export function activate(context: vscode.ExtensionContext): void {
         100
     );
     statusBarItem.command = 'codemark.bookmarks.focus';
-    updateStatusBar(statusBarItem);
     statusBarItem.show();
     context.subscriptions.push(statusBarItem);
 
@@ -92,6 +90,32 @@ export function activate(context: vscode.ExtensionContext): void {
         treeProvider
     );
     context.subscriptions.push(treeView);
+
+    // ── Webview Dashboard ──────────────────────────────────────────────────
+    const dashboard = new BookmarkDashboard(
+        context.extensionUri,
+        (uriString, line) => {
+            const idx = bookmarks.findIndex(
+                b => b.uri.toString() === uriString && b.line === line
+            );
+            if (idx === -1) { return; }
+            bookmarks.splice(idx, 1);
+
+            const editor = vscode.window.activeTextEditor;
+            if (editor) { applyDecorations(editor, decorationType); }
+            treeProvider.refresh();
+            saveBookmarks(context);
+            updateStatusBar(statusBarItem);
+            dashboard.update(bookmarks);
+        },
+        (uriString, line) => {
+            vscode.commands.executeCommand(
+                'codemark.revealBookmark',
+                vscode.Uri.parse(uriString),
+                line
+            );
+        }
+    );
 
     // ── Commands ───────────────────────────────────────────────────────────
     const addBookmark = vscode.commands.registerCommand(
@@ -113,11 +137,17 @@ export function activate(context: vscode.ExtensionContext): void {
             treeProvider.refresh();
             saveBookmarks(context);
             updateStatusBar(statusBarItem);
+            dashboard.update(bookmarks);
 
             vscode.window.showInformationMessage(
                 `CodeMark: Bookmarked line ${line + 1} in ${fileName}  (${bookmarks.length} total)`
             );
         }
+    );
+
+    const openDashboard = vscode.commands.registerCommand(
+        'codemark.openDashboard',
+        () => dashboard.open(bookmarks)
     );
 
     const revealBookmark = vscode.commands.registerCommand(
@@ -141,7 +171,7 @@ export function activate(context: vscode.ExtensionContext): void {
         }
     });
 
-    context.subscriptions.push(addBookmark, revealBookmark, onEditorChange);
+    context.subscriptions.push(addBookmark, openDashboard, revealBookmark, onEditorChange);
 }
 
 export function deactivate(): void {}

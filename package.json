@@ -16,6 +16,11 @@
         "command": "codemark.addBookmark",
         "title": "Add Bookmark",
         "category": "CodeMark"
+      },
+      {
+        "command": "codemark.openDashboard",
+        "title": "Open Dashboard",
+        "category": "CodeMark"
       }
     ],
     "viewsContainers": {
