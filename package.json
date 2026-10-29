@@ -17,7 +17,24 @@
         "title": "Add Bookmark",
         "category": "CodeMark"
       }
-    ]
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codemark-container",
+          "title": "CodeMark",
+          "icon": "resources/bookmark.svg"
+        }
+      ]
+    },
+    "views": {
+      "codemark-container": [
+        {
+          "id": "codemark.bookmarks",
+          "name": "Bookmarks"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

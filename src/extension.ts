@@ -1,16 +1,94 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
+import { Bookmark } from './types';
+import { BookmarkTreeProvider } from './treeProvider';
+
+const bookmarks: Bookmark[] = [];
+
+function applyDecorations(
+    editor: vscode.TextEditor,
+    decorationType: vscode.TextEditorDecorationType
+): void {
+    const ranges = bookmarks
+        .filter(b =>
+            b.uri.toString() === editor.document.uri.toString() &&
+            b.line < editor.document.lineCount
+        )
+        .map(b => editor.document.lineAt(b.line).range);
+
+    editor.setDecorations(decorationType, ranges);
+}
 
 export function activate(context: vscode.ExtensionContext): void {
     console.log('CodeMark is now active!');
 
+    // ── Decorations ────────────────────────────────────────────────────────
+    const decorationType = vscode.window.createTextEditorDecorationType({
+        isWholeLine: true,
+        backgroundColor: 'rgba(255, 200, 0, 0.15)',
+        overviewRulerColor: 'rgba(255, 200, 0, 0.8)',
+        overviewRulerLane: vscode.OverviewRulerLane.Left,
+        gutterIconPath: context.asAbsolutePath(path.join('resources', 'bookmark.svg')),
+        gutterIconSize: 'contain',
+    });
+    context.subscriptions.push(decorationType);
+
+    // ── Tree View ──────────────────────────────────────────────────────────
+    const treeProvider = new BookmarkTreeProvider(bookmarks);
+    const treeView = vscode.window.registerTreeDataProvider(
+        'codemark.bookmarks',
+        treeProvider
+    );
+    context.subscriptions.push(treeView);
+
+    // ── Commands ───────────────────────────────────────────────────────────
     const addBookmark = vscode.commands.registerCommand(
         'codemark.addBookmark',
         () => {
-            vscode.window.showInformationMessage('CodeMark: Bookmark added!');
+            const editor = vscode.window.activeTextEditor;
+
+            if (!editor) {
+                vscode.window.showWarningMessage('CodeMark: Open a file first.');
+                return;
+            }
+
+            const uri = editor.document.uri;
+            const line = editor.selection.active.line;
+            const fileName = path.basename(uri.fsPath);
+
+            bookmarks.push({ uri, line });
+            applyDecorations(editor, decorationType);
+            treeProvider.refresh();
+
+            vscode.window.showInformationMessage(
+                `CodeMark: Bookmarked line ${line + 1} in ${fileName}  (${bookmarks.length} total)`
+            );
         }
     );
 
-    context.subscriptions.push(addBookmark);
+    // Internal command — called by BookmarkItem.command, not shown in palette.
+    const revealBookmark = vscode.commands.registerCommand(
+        'codemark.revealBookmark',
+        async (uri: vscode.Uri, line: number) => {
+            const document = await vscode.workspace.openTextDocument(uri);
+            const editor = await vscode.window.showTextDocument(document);
+            const position = new vscode.Position(line, 0);
+            editor.selection = new vscode.Selection(position, position);
+            editor.revealRange(
+                new vscode.Range(position, position),
+                vscode.TextEditorRevealType.InCenter
+            );
+        }
+    );
+
+    // ── Events ─────────────────────────────────────────────────────────────
+    const onEditorChange = vscode.window.onDidChangeActiveTextEditor(editor => {
+        if (editor) {
+            applyDecorations(editor, decorationType);
+        }
+    });
+
+    context.subscriptions.push(addBookmark, revealBookmark, onEditorChange);
 }
 
 export function deactivate(): void {}
