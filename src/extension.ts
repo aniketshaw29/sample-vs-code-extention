@@ -3,7 +3,34 @@ import * as path from 'path';
 import { Bookmark } from './types';
 import { BookmarkTreeProvider } from './treeProvider';
 
+const STORAGE_KEY = 'codemark.bookmarks';
+
+// vscode.Uri is a class — it cannot be stored in JSON directly.
+// We serialize to a plain string and reconstruct on load.
+interface StoredBookmark {
+    uriString: string;
+    line: number;
+}
+
 const bookmarks: Bookmark[] = [];
+
+function saveBookmarks(context: vscode.ExtensionContext): void {
+    const stored: StoredBookmark[] = bookmarks.map(b => ({
+        uriString: b.uri.toString(),
+        line: b.line,
+    }));
+    context.workspaceState.update(STORAGE_KEY, stored);
+}
+
+function loadBookmarks(context: vscode.ExtensionContext): void {
+    const stored = context.workspaceState.get<StoredBookmark[]>(STORAGE_KEY, []);
+    for (const s of stored) {
+        bookmarks.push({
+            uri: vscode.Uri.parse(s.uriString),
+            line: s.line,
+        });
+    }
+}
 
 function applyDecorations(
     editor: vscode.TextEditor,
@@ -33,6 +60,14 @@ export function activate(context: vscode.ExtensionContext): void {
     });
     context.subscriptions.push(decorationType);
 
+    // ── Restore persisted bookmarks ────────────────────────────────────────
+    loadBookmarks(context);
+
+    const currentEditor = vscode.window.activeTextEditor;
+    if (currentEditor) {
+        applyDecorations(currentEditor, decorationType);
+    }
+
     // ── Tree View ──────────────────────────────────────────────────────────
     const treeProvider = new BookmarkTreeProvider(bookmarks);
     const treeView = vscode.window.registerTreeDataProvider(
@@ -59,6 +94,7 @@ export function activate(context: vscode.ExtensionContext): void {
             bookmarks.push({ uri, line });
             applyDecorations(editor, decorationType);
             treeProvider.refresh();
+            saveBookmarks(context);
 
             vscode.window.showInformationMessage(
                 `CodeMark: Bookmarked line ${line + 1} in ${fileName}  (${bookmarks.length} total)`
@@ -66,7 +102,6 @@ export function activate(context: vscode.ExtensionContext): void {
         }
     );
 
-    // Internal command — called by BookmarkItem.command, not shown in palette.
     const revealBookmark = vscode.commands.registerCommand(
         'codemark.revealBookmark',
         async (uri: vscode.Uri, line: number) => {
