@@ -32,6 +32,12 @@ function loadBookmarks(context: vscode.ExtensionContext): void {
     }
 }
 
+function updateStatusBar(item: vscode.StatusBarItem): void {
+    const count = bookmarks.length;
+    item.text = `$(bookmark) ${count} bookmark${count !== 1 ? 's' : ''}`;
+    item.tooltip = 'CodeMark — click to open Bookmarks panel';
+}
+
 function applyDecorations(
     editor: vscode.TextEditor,
     decorationType: vscode.TextEditorDecorationType
@@ -60,8 +66,19 @@ export function activate(context: vscode.ExtensionContext): void {
     });
     context.subscriptions.push(decorationType);
 
+    // ── Status Bar ─────────────────────────────────────────────────────────
+    const statusBarItem = vscode.window.createStatusBarItem(
+        vscode.StatusBarAlignment.Left,
+        100
+    );
+    statusBarItem.command = 'codemark.bookmarks.focus';
+    updateStatusBar(statusBarItem);
+    statusBarItem.show();
+    context.subscriptions.push(statusBarItem);
+
     // ── Restore persisted bookmarks ────────────────────────────────────────
     loadBookmarks(context);
+    updateStatusBar(statusBarItem);
 
     const currentEditor = vscode.window.activeTextEditor;
     if (currentEditor) {
@@ -95,6 +112,7 @@ export function activate(context: vscode.ExtensionContext): void {
             applyDecorations(editor, decorationType);
             treeProvider.refresh();
             saveBookmarks(context);
+            updateStatusBar(statusBarItem);
 
             vscode.window.showInformationMessage(
                 `CodeMark: Bookmarked line ${line + 1} in ${fileName}  (${bookmarks.length} total)`
