@@ -7,7 +7,9 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
@@ -15,12 +17,20 @@
       {
         "command": "codemark.addBookmark",
         "title": "Add Bookmark",
-        "category": "CodeMark"
+        "category": "CodeMark",
+        "icon": "$(bookmark)"
       },
       {
         "command": "codemark.openDashboard",
         "title": "Open Dashboard",
-        "category": "CodeMark"
+        "category": "CodeMark",
+        "icon": "$(table)"
+      },
+      {
+        "command": "codemark.removeBookmark",
+        "title": "Remove Bookmark",
+        "category": "CodeMark",
+        "icon": "$(trash)"
       }
     ],
     "viewsContainers": {
@@ -39,6 +49,53 @@
           "name": "Bookmarks"
         }
       ]
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "codemark.addBookmark",
+          "group": "navigation",
+          "when": "editorTextFocus"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "codemark.openDashboard",
+          "when": "view == codemark.bookmarks",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "codemark.removeBookmark",
+          "when": "view == codemark.bookmarks && viewItem == bookmarkItem",
+          "group": "inline"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "codemark.addBookmark",
+        "key": "ctrl+alt+b",
+        "mac": "cmd+alt+b",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "CodeMark",
+      "properties": {
+        "codemark.highlightColor": {
+          "type": "string",
+          "default": "rgba(255, 200, 0, 0.15)",
+          "description": "Background color applied to bookmarked lines. Accepts any valid CSS color string."
+        },
+        "codemark.maxBookmarksPerFile": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Maximum number of bookmarks allowed per file. Set to 0 for unlimited."
+        }
+      }
     }
   },
   "scripts": {
@@ -46,7 +103,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src",
+    "lint": "eslint 'src/**/*.ts'",
     "test": "vscode-test"
   },
   "devDependencies": {
@@ -57,6 +114,7 @@
     "@typescript-eslint/parser": "^7.11.0",
     "@vscode/test-cli": "^0.0.9",
     "@vscode/test-electron": "^2.4.0",
+    "@vscode/vsce": "^4.1.0",
     "eslint": "^8.57.0",
     "typescript": "^5.4.5"
   }

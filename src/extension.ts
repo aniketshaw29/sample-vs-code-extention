@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { Bookmark } from './types';
-import { BookmarkTreeProvider } from './treeProvider';
+import { addBookmark, removeBookmark } from './bookmarkModel';
+import { BookmarkTreeProvider, BookmarkItem } from './treeProvider';
 import { BookmarkDashboard } from './webviewPanel';
 
 const STORAGE_KEY = 'codemark.bookmarks';
@@ -37,6 +38,21 @@ function updateStatusBar(item: vscode.StatusBarItem): void {
     item.tooltip = 'CodeMark — click to open Bookmarks panel';
 }
 
+function createDecorationType(context: vscode.ExtensionContext): vscode.TextEditorDecorationType {
+    const color = vscode.workspace
+        .getConfiguration('codemark')
+        .get<string>('highlightColor', 'rgba(255, 200, 0, 0.15)');
+
+    return vscode.window.createTextEditorDecorationType({
+        isWholeLine: true,
+        backgroundColor: color,
+        overviewRulerColor: 'rgba(255, 200, 0, 0.8)',
+        overviewRulerLane: vscode.OverviewRulerLane.Left,
+        gutterIconPath: context.asAbsolutePath(path.join('resources', 'bookmark.svg')),
+        gutterIconSize: 'contain',
+    });
+}
+
 function applyDecorations(
     editor: vscode.TextEditor,
     decorationType: vscode.TextEditorDecorationType
@@ -55,15 +71,12 @@ export function activate(context: vscode.ExtensionContext): void {
     console.log('CodeMark is now active!');
 
     // ── Decorations ────────────────────────────────────────────────────────
-    const decorationType = vscode.window.createTextEditorDecorationType({
-        isWholeLine: true,
-        backgroundColor: 'rgba(255, 200, 0, 0.15)',
-        overviewRulerColor: 'rgba(255, 200, 0, 0.8)',
-        overviewRulerLane: vscode.OverviewRulerLane.Left,
-        gutterIconPath: context.asAbsolutePath(path.join('resources', 'bookmark.svg')),
-        gutterIconSize: 'contain',
-    });
-    context.subscriptions.push(decorationType);
+    // `let` — may be replaced when highlightColor setting changes.
+    let decorationType = createDecorationType(context);
+
+    // Custom disposable wrapper: closes over `decorationType` by reference so
+    // it always disposes whichever instance is current when VS Code shuts down.
+    context.subscriptions.push({ dispose: () => decorationType.dispose() });
 
     // ── Status Bar ─────────────────────────────────────────────────────────
     const statusBarItem = vscode.window.createStatusBarItem(
@@ -91,15 +104,23 @@ export function activate(context: vscode.ExtensionContext): void {
     );
     context.subscriptions.push(treeView);
 
-    // ── Webview Dashboard ──────────────────────────────────────────────────
+    // ── Configuration change listener ──────────────────────────────────────
+    const onConfigChange = vscode.workspace.onDidChangeConfiguration(e => {
+        if (!e.affectsConfiguration('codemark.highlightColor')) { return; }
+        decorationType.dispose();
+        decorationType = createDecorationType(context);
+        for (const editor of vscode.window.visibleTextEditors) {
+            applyDecorations(editor, decorationType);
+        }
+    });
+    context.subscriptions.push(onConfigChange);
+
+    // ── Webview Dashboard ───────────────────────────────────────────────────
     const dashboard = new BookmarkDashboard(
         context.extensionUri,
         (uriString, line) => {
-            const idx = bookmarks.findIndex(
-                b => b.uri.toString() === uriString && b.line === line
-            );
-            if (idx === -1) { return; }
-            bookmarks.splice(idx, 1);
+            const removed = removeBookmark(bookmarks, uriString, line);
+            if (!removed) { return; }
 
             const editor = vscode.window.activeTextEditor;
             if (editor) { applyDecorations(editor, decorationType); }
@@ -118,7 +139,7 @@ export function activate(context: vscode.ExtensionContext): void {
     );
 
     // ── Commands ───────────────────────────────────────────────────────────
-    const addBookmark = vscode.commands.registerCommand(
+    const addBookmarkCmd = vscode.commands.registerCommand(
         'codemark.addBookmark',
         () => {
             const editor = vscode.window.activeTextEditor;
@@ -132,7 +153,18 @@ export function activate(context: vscode.ExtensionContext): void {
             const line = editor.selection.active.line;
             const fileName = path.basename(uri.fsPath);
 
-            bookmarks.push({ uri, line });
+            const maxPerFile = vscode.workspace
+                .getConfiguration('codemark')
+                .get<number>('maxBookmarksPerFile', 0);
+
+            const result = addBookmark(bookmarks, { uri, line }, maxPerFile);
+            if (!result.added) {
+                vscode.window.showWarningMessage(
+                    `CodeMark: Maximum of ${maxPerFile} bookmark${maxPerFile !== 1 ? 's' : ''} per file reached.`
+                );
+                return;
+            }
+
             applyDecorations(editor, decorationType);
             treeProvider.refresh();
             saveBookmarks(context);
@@ -142,6 +174,21 @@ export function activate(context: vscode.ExtensionContext): void {
             vscode.window.showInformationMessage(
                 `CodeMark: Bookmarked line ${line + 1} in ${fileName}  (${bookmarks.length} total)`
             );
+        }
+    );
+
+    const removeBookmarkCmd = vscode.commands.registerCommand(
+        'codemark.removeBookmark',
+        (item: BookmarkItem) => {
+            const removed = removeBookmark(bookmarks, item.uri.toString(), item.line);
+            if (!removed) { return; }
+
+            const editor = vscode.window.activeTextEditor;
+            if (editor) { applyDecorations(editor, decorationType); }
+            treeProvider.refresh();
+            saveBookmarks(context);
+            updateStatusBar(statusBarItem);
+            dashboard.update(bookmarks);
         }
     );
 
@@ -171,7 +218,7 @@ export function activate(context: vscode.ExtensionContext): void {
         }
     });
 
-    context.subscriptions.push(addBookmark, openDashboard, revealBookmark, onEditorChange);
+    context.subscriptions.push(addBookmarkCmd, removeBookmarkCmd, openDashboard, revealBookmark, onEditorChange);
 }
 
 export function deactivate(): void {}
